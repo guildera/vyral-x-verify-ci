@@ -12,11 +12,17 @@ on:
     - cron: "7,17,27,37,47,57 * * * *"
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
+      - uses: actions/checkout@v4
+
       - name: Check site pages and verifier health
         run: |
           set -uo pipefail
