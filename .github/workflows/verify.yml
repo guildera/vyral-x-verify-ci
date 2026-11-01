@@ -34,6 +34,14 @@ on:
         description: "profile mode: max timeline scrolls"
         required: false
         default: "12"
+      min_followers:
+        description: "profile mode: follower threshold (site passes its configured value)"
+        required: false
+        default: "1000"
+      min_posts:
+        description: "profile mode: posts-per-month threshold (site passes its configured value)"
+        required: false
+        default: "10"
 
 jobs:
   verify:
@@ -66,6 +74,8 @@ jobs:
           HANDLE: ${{ inputs.handle }}
           POSTS: ${{ inputs.posts }}
           SCROLLS: ${{ inputs.scrolls }}
+          MIN_FOLLOWERS: ${{ inputs.min_followers }}
+          MIN_POSTS: ${{ inputs.min_posts }}
           X_STATE: ${{ secrets.X_STATE }}
           CHAT_PIN: ${{ secrets.CHAT_PIN }}
         run: |
@@ -73,7 +83,7 @@ jobs:
           if [ "$MODE" = "chat" ]; then
             node chat.js --json --expect-code "$CODE" --expected "$HANDLE" > out.json 2> err.log
           else
-            node verify.js "$HANDLE" --json --posts "$POSTS" --scrolls "$SCROLLS" --min-followers 1000 --min-posts-per-month 10 > out.json 2> err.log
+            node verify.js "$HANDLE" --json --posts "$POSTS" --scrolls "$SCROLLS" --min-followers "$MIN_FOLLOWERS" --min-posts-per-month "$MIN_POSTS" > out.json 2> err.log
           fi
           if ! [ -s out.json ]; then
             echo '{"ok":false,"read_ok":false,"verdict":"error","error":"runner produced no output"}' > out.json
