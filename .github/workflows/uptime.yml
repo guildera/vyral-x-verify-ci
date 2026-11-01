@@ -39,6 +39,11 @@ jobs:
           check "verifier health"  "https://xverify.guildera.ai/health"                  "\"chatReader\":true"
           exit $fail
 
+      - name: Browser-level check (catches client-side crashes HTTP probes miss)
+        run: |
+          npm install --no-save --no-audit --no-fund patchright
+          node scripts/uptime-browser.mjs
+
       - name: Open or update the outage issue
         if: failure()
         uses: actions/github-script@v7
