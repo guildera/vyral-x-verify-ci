@@ -37,7 +37,10 @@ on:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    # Repo variable RUNNER selects where jobs run: "box" = self-hosted runner
+    # on the GCP box (no queue, ~0s setup); unset/"ubuntu-latest" = GitHub-hosted
+    # (zero box dependency). Flip anytime: gh variable set RUNNER --body ubuntu-latest
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
