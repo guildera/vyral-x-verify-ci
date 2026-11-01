@@ -89,6 +89,27 @@ function codeMatches(text) {
   return hits;
 }
 
+/**
+ * Readiness polling: wait until probe() is truthy, up to the budget.
+ * Replaces fixed sleeps — fast when X renders quickly, equally patient when
+ * it doesn't (budgets are <= the old fixed waits, so the worst case is
+ * unchanged; the typical case saves seconds on every step).
+ */
+async function waitUntil(page, budgetMs, probe) {
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    let ready = false;
+    try {
+      ready = await probe();
+    } catch {
+      ready = false;
+    }
+    if (ready) return true;
+    if (Date.now() >= deadline) return false;
+    await page.waitForTimeout(650);
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv);
 
@@ -134,7 +155,12 @@ async function main() {
   try {
     // ---- open chat ---------------------------------------------------------
     await page.goto("https://x.com/i/chat", { waitUntil: "load", timeout: 60000 });
-    await page.waitForTimeout(6000);
+    // Wait for EITHER the passcode wall or the chat inbox — whichever X
+    // renders first — instead of a fixed 6s nap.
+    await waitUntil(page, 7000, async () => {
+      if ((await page.locator('input[maxlength="1"]').count()) >= 4) return true;
+      return (await page.locator('[data-testid="dm-new-chat-button"]').count()) > 0;
+    });
     if (!/\/i\/chat/.test(page.url())) {
       out.error = "Chat route did not open (redirected to " + page.url() + ")";
       console.log(JSON.stringify(out));
@@ -166,7 +192,11 @@ async function main() {
         await page.waitForTimeout(120);
       }
       out.passcode_entered = true;
-      await page.waitForTimeout(6000);
+      // The inbox renders after unlock — poll for the new-message button
+      // (typically ~3s) rather than sleeping a fixed 6s.
+      await waitUntil(page, 7000, async () =>
+        (await page.locator('[data-testid="dm-new-chat-button"]').count()) > 0
+      );
     }
 
     if (/pin\/recovery/.test(page.url())) {
@@ -194,7 +224,9 @@ async function main() {
         return;
       }
       await newChat.click().catch(() => {});
-      await page.waitForTimeout(1500);
+      await waitUntil(page, 4000, async () =>
+        (await page.locator('[data-testid="new-dm-search-input"]').count()) > 0
+      );
 
       const searchInput = page.locator('[data-testid="new-dm-search-input"]');
       if ((await searchInput.count()) === 0) {
@@ -206,8 +238,11 @@ async function main() {
       await searchInput.click();
       if (expected) {
         await page.keyboard.type(expected, { delay: 80 });
+        // The suggestion row is the readiness signal (probes: ~1-2s).
+        await waitUntil(page, 5000, async () =>
+          (await page.locator('[data-testid^="new-dm-user-suggestion"]').count()) > 0
+        );
       }
-      await page.waitForTimeout(2500);
 
       if (!expected) continue; // no-handle mode only asserts the reader runs
 
@@ -228,13 +263,27 @@ async function main() {
 
       await row.click();
 
+      // Verify the click actually OPENED the conversation: a click landing the
+      // instant a suggestion row hydrates can be swallowed (its handlers not
+      // yet bound) — the panel would sit empty while the polls count nothing.
+      // Retry the click once if no open-thread signal appears.
+      const threadOpenSignal = async () =>
+        (await page.locator(
+          '[data-testid="dm-conversation-header"], [data-testid="dm-message-request-prompt"], [data-testid^="message-text-"]'
+        ).count()) > 0;
+      const opened = await waitUntil(page, 3500, threadOpenSignal);
+      if (!opened) {
+        await row.click().catch(() => {});
+        await waitUntil(page, 3500, threadOpenSignal);
+      }
+
       // The thread content loads asynchronously (message list pulls history
-      // after the conversation opens). Poll briefly instead of a fixed sleep:
+      // after the conversation opens). Poll instead of a fixed sleep:
       // reading too early understates what is there, which would turn a real
-      // match into a false "not yet".
+      // match into a false "not yet". 8 x 1.3s ≈ 10s covers slow history.
       let msgCountsTrail = [];
       let ready = false;
-      for (let attempt = 0; attempt < 5; attempt++) {
+      for (let attempt = 0; attempt < 8; attempt++) {
         await page.waitForTimeout(1300);
         const probe = await page.evaluate(() => {
           const root = document.querySelector('[data-testid="xchatEmbedRoute"]')?.shadowRoot;
@@ -249,6 +298,9 @@ async function main() {
           break;
         }
       }
+      // Diagnostic (counts only, no text): was the conversation panel still
+      // showing its empty state after all polls?
+      const emptyPanel = (await page.locator('[data-testid="dm-empty-conversation-state"]').count()) > 0;
 
       const thread = await page.evaluate((codeSeed) => {
         const root = document.querySelector('[data-testid="xchatEmbedRoute"]')?.shadowRoot;
@@ -283,7 +335,7 @@ async function main() {
       threadsRead += 1;
       // Honest observability: counts only — no message text or headers are
       // ever emitted by the reader.
-      out.message_counts = [...(out.message_counts || []), { handle: expected, trail: msgCountsTrail, read: thread.messageTexts.length }];
+      out.message_counts = [...(out.message_counts || []), { handle: expected, trail: msgCountsTrail, read: thread.messageTexts.length, empty: emptyPanel }];
 
       // Participant truth: the caller's own texts must name the expected
       // handle (thread header or the request prompt do).
