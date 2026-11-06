@@ -31,6 +31,16 @@ jobs:
       - name: Install
         run: npm install
 
+      - name: Disk guard (this job runs on the box)
+        run: |
+          df -h / | tail -1
+          USED=$(df -P / | awk 'NR==2 {gsub("%","",$5); print $5}')
+          if [ "$USED" -gt 90 ]; then
+            echo "::error::Box disk at ${USED}% — cleanup timer may have failed"
+            exit 1
+          fi
+          echo "disk ok: ${USED}%"
+
       - name: Read the known thread
         env:
           X_STATE: ${{ secrets.X_STATE }}
