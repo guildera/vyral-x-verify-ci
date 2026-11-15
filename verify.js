@@ -221,10 +221,11 @@ async function readProfile(page, fallbackHandle) {
       '[data-testid="UserName"] svg[data-testid="icon-verified"]'
     );
 
-    // Avatar: X renames the container testid per-account (it used to be
-    // hard-coded "-unknown"), so match the prefix and fall back to the
-    // profile-images CDN path.
+    // Avatar: the profile's own photo links to "/photo" (nav/account-menu
+    // avatars never do), which sidesteps X's per-account UserAvatar-Container
+    // testid churn; keep the container prefix as fallback, CDN last.
     const avatar =
+      document.querySelector('a[href$="/photo"] img') ||
       document.querySelector('[data-testid^="UserAvatar-Container-"] img') ||
       document.querySelector('img[src*="profile_images"]');
     if (avatar) out.avatar = avatar.src;
