@@ -221,9 +221,12 @@ async function readProfile(page, fallbackHandle) {
       '[data-testid="UserName"] svg[data-testid="icon-verified"]'
     );
 
-    const avatar = document.querySelector(
-      '[data-testid="UserAvatar-Container-unknown"] img'
-    );
+    // Avatar: X renames the container testid per-account (it used to be
+    // hard-coded "-unknown"), so match the prefix and fall back to the
+    // profile-images CDN path.
+    const avatar =
+      document.querySelector('[data-testid^="UserAvatar-Container-"] img') ||
+      document.querySelector('img[src*="profile_images"]');
     if (avatar) out.avatar = avatar.src;
 
     // Counts. X renders "<number> <Label>" in the profile header, but the
